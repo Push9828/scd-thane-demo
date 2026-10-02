@@ -1,6 +1,6 @@
 # Conference agent demo
 
-A small TypeScript demo for an AWS conference talk. The OpenAI Agents SDK runs one agent. Its five local MCP tools call an HTTPS API; only Lambda reads or writes DynamoDB.
+A small TypeScript demo for an AWS conference talk. The OpenAI Agents SDK runs one agent. Its five local MCP tools call an HTTPS API; at runtime, Lambda owns DynamoDB access.
 
 ```text
 CLI + OpenAI Agents SDK
@@ -72,10 +72,15 @@ The seed includes **Serverless + AI**, **Building Agents on AWS** (the AI agent 
 ## Run the talk demo
 
 ```bash
-npm run demo
+set -a
+source .env
+set +a
+npm run demo:live
 ```
 
-The CLI runs READ, ACT, RETRY, and OVERREACH in one conversation. It prints user input, tool choice, arguments, result, and final model response for each turn. You can run one custom request with `npm run demo -- "What am I registered for?"`. `OPENAI_MODEL` optionally selects another Agents SDK model.
+Press Enter to advance through READ, ACT, RETRY, and OVERREACH. A final Enter prints the CloudWatch query for TRACE. The CLI prints user input, tool choice, arguments, result, and final model response for each turn. Use `npm run demo` to run without pauses, or `npm run demo -- "What am I registered for?"` for one custom request. `OPENAI_MODEL` optionally selects another Agents SDK model.
+
+After refreshing an expired access token in `.env`, run the three environment-loading commands again in the same terminal before restarting the demo. For a fresh ACT result on a later run, cancel the attendee's workshop registration first with `npm run demo -- "Cancel my registration for the AI agent workshop."`.
 
 The ACT turn registers the JWT's `sub` for `building-agents-aws`. RETRY returns exactly `{ "status": "already_registered" }` from Lambda after DynamoDB rejects the duplicate conditional write. The OVERREACH request has no bulk registration tool. Even a direct HTTP request with a `userId` field is rejected; all writes derive the user from the verified JWT claim.
 
@@ -83,7 +88,7 @@ The local MCP server owns the bearer token and calls API Gateway. The OpenAI mod
 
 ## Trace in CloudWatch
 
-Lambda emits one JSON line per API request with `requestId`, `principalId`, `tool`, `sessionId`, `result`, and `latencyMs`. In CloudWatch Logs Insights, select the `ConferenceFunction` log group and run:
+Lambda emits one JSON line per API request with `requestId`, `principalId`, `tool`, `sessionId`, `result`, and `latencyMs`. In CloudWatch Logs Insights, select the `/aws/lambda/<FunctionName>` log group, using the deployed stack's `FunctionName` output, and run:
 
 ```sql
 fields @timestamp, requestId, principalId, tool, sessionId, result, latencyMs
