@@ -1,0 +1,115 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Conference agent API with JWT identity and conditional DynamoDB registrations
+
+Parameters:
+  JwtIssuer:
+    Type: String
+    Description: OIDC issuer URL for attendee access tokens
+  JwtAudience:
+    Type: String
+    Description: Audience for attendee access tokens
+
+Resources:
+  ConferenceTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - { AttributeName: pk, AttributeType: S }
+        - { AttributeName: sk, AttributeType: S }
+        - { AttributeName: gsi1pk, AttributeType: S }
+        - { AttributeName: gsi1sk, AttributeType: S }
+      KeySchema:
+        - { AttributeName: pk, KeyType: HASH }
+        - { AttributeName: sk, KeyType: RANGE }
+      GlobalSecondaryIndexes:
+        - IndexName: ByUser
+          KeySchema:
+            - { AttributeName: gsi1pk, KeyType: HASH }
+            - { AttributeName: gsi1sk, KeyType: RANGE }
+          Projection: { ProjectionType: ALL }
+
+  ConferenceApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      Auth:
+        DefaultAuthorizer: AttendeeJwt
+        Authorizers:
+          AttendeeJwt:
+            AuthorizationScopes: [conference/attend]
+            IdentitySource: $request.header.Authorization
+            JwtConfiguration:
+              issuer: !Ref JwtIssuer
+              audience: [!Ref JwtAudience]
+
+  ConferenceFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: .
+      Runtime: nodejs22.x
+      Handler: handler.handler
+      Timeout: 10
+      MemorySize: 256
+      Environment:
+        Variables:
+          TABLE_NAME: !Ref ConferenceTable
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action:
+                - dynamodb:GetItem
+                - dynamodb:PutItem
+                - dynamodb:DeleteItem
+                - dynamodb:Query
+                - dynamodb:Scan
+              Resource:
+                - !GetAtt ConferenceTable.Arn
+                - !Sub ${ConferenceTable.Arn}/index/ByUser
+      Events:
+        ListSessions:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ConferenceApi
+            Path: /sessions
+            Method: GET
+        GetSession:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ConferenceApi
+            Path: /sessions/{sessionId}
+            Method: GET
+        Register:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ConferenceApi
+            Path: /registrations/{sessionId}
+            Method: POST
+        Registrations:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ConferenceApi
+            Path: /registrations
+            Method: GET
+        Cancel:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ConferenceApi
+            Path: /registrations/{sessionId}
+            Method: DELETE
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        EntryPoints: [src/api/handler.ts]
+        Target: es2022
+        Format: cjs
+        OutExtension: [.js=.cjs]
+        Minify: true
+
+Outputs:
+  ApiUrl:
+    Value: !Sub https://${ConferenceApi}.execute-api.${AWS::Region}.amazonaws.com
+  TableName:
+    Value: !Ref ConferenceTable
+  FunctionName:
+    Value: !Ref ConferenceFunction

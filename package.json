@@ -1,0 +1,28 @@
+{
+  "name": "conference-agent-demo",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc --noEmit",
+    "demo": "tsx src/agent/cli.ts",
+    "demo:live": "tsx src/agent/cli.ts --step",
+    "token": "tsx src/agent/get-token.ts",
+    "mcp": "tsx src/mcp/server.ts",
+    "seed": "tsx src/seed.ts",
+    "test": "node --import tsx --test src/api/handler.test.ts"
+  },
+  "dependencies": {
+    "@aws-sdk/client-dynamodb": "^3.900.0",
+    "@aws-sdk/lib-dynamodb": "^3.900.0",
+    "@modelcontextprotocol/sdk": "^1.31.0",
+    "@openai/agents": "^0.18.0",
+    "esbuild": "^0.28.0",
+    "zod": "^4.2.0"
+  },
+  "devDependencies": {
+    "@types/aws-lambda": "^8.10.0",
+    "@types/node": "^24.0.0",
+    "tsx": "^4.20.0",
+    "typescript": "^5.9.0"
+  }
+}
