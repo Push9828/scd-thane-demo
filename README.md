@@ -2,16 +2,19 @@
 
 A small TypeScript demo for an AWS conference talk. The OpenAI Agents SDK runs one agent. Its five local MCP tools call an HTTPS API; at runtime, Lambda owns DynamoDB access.
 
-```text
-CLI + OpenAI Agents SDK
-         ↓ MCP over stdio
-Local MCP server
-         ↓ HTTPS + attendee JWT
-Amazon API Gateway (JWT authorizer)
-         ↓
-AWS Lambda (validation, user scoping, JSON logs)
-         ↓
-DynamoDB
+```mermaid
+flowchart TB
+    subgraph local["Your laptop"]
+        cli["Demo CLI<br/>OpenAI Agents SDK"] -->|"MCP over stdio"| mcp["Local MCP server<br/>five tools"]
+    end
+
+    subgraph aws["AWS backend"]
+        api["Amazon API Gateway<br/>JWT authorizer"] --> lambda["AWS Lambda<br/>validation and user scoping"]
+        lambda -->|"conditional writes"| db[(Amazon DynamoDB)]
+        lambda -.->|"structured JSON"| logs["Amazon CloudWatch Logs"]
+    end
+
+    mcp -->|"HTTPS + attendee JWT"| api
 ```
 
 ## Project layout
@@ -80,9 +83,22 @@ npm run demo:live
 
 Press Enter to advance through READ, ACT, RETRY, and OVERREACH. A final Enter prints the CloudWatch query for TRACE. The CLI prints user input, tool choice, arguments, result, and final model response for each turn. Use `npm run demo` to run without pauses, or `npm run demo -- "What am I registered for?"` for one custom request. `OPENAI_MODEL` optionally selects another Agents SDK model.
 
-After refreshing an expired access token in `.env`, run the three environment-loading commands again in the same terminal before restarting the demo. For a fresh ACT result on a later run, cancel the attendee's workshop registration first with `npm run demo -- "Cancel my registration for the AI agent workshop."`.
+| Stage | What to watch |
+| --- | --- |
+| READ | `listSessions` retrieves the seeded sessions. |
+| ACT | `registerForSession` registers the signed-in attendee for the workshop. |
+| RETRY | A repeated registration returns `{ "status": "already_registered" }` if the tool is called again. |
+| OVERREACH | There is no bulk registration tool; the backend cannot register another user with this attendee's token. |
+| TRACE | CloudWatch shows the authenticated principal, tool, result, and request timing. |
 
-The ACT turn registers the JWT's `sub` for `building-agents-aws`. RETRY returns exactly `{ "status": "already_registered" }` from Lambda after DynamoDB rejects the duplicate conditional write. The OVERREACH request has no bulk registration tool. Even a direct HTTP request with a `userId` field is rejected; all writes derive the user from the verified JWT claim.
+After refreshing an expired access token in `.env`, run the three environment-loading commands again in the same terminal before restarting the demo. For a fresh ACT result on a later run, clear this attendee's workshop registration before starting:
+
+```bash
+curl -sS -X DELETE -H "Authorization: Bearer $CONFERENCE_ACCESS_TOKEN" \
+  "$CONFERENCE_API_URL/registrations/building-agents-aws"
+```
+
+The ACT turn registers the JWT's `sub` for `building-agents-aws`. On a repeated registration call, Lambda returns exactly `{ "status": "already_registered" }` after DynamoDB rejects the duplicate conditional write. The model's tool choices and wording can vary between runs. The OVERREACH request has no bulk registration tool. Even a direct HTTP request with a `userId` field is rejected; all writes derive the user from the verified JWT claim.
 
 The local MCP server owns the bearer token and calls API Gateway. The OpenAI model sees tool names, arguments, and results, but it cannot send a user ID to the API. Use a dedicated demo attendee token and avoid sharing it in slides or logs.
 
@@ -96,7 +112,7 @@ fields @timestamp, requestId, principalId, tool, sessionId, result, latencyMs
 | limit 50
 ```
 
-Filter to one attendee with `| filter principalId = "<JWT sub>"`. The registration and retry should show `registered` followed by `already_registered` for the same session. The overreach request should produce no registration log unless the model chooses a valid single-session tool; Lambda still scopes that write to the JWT principal.
+To inspect one attendee, insert `| filter principalId = "<JWT sub>"` before `| sort`. The registration and retry should show `registered` followed by `already_registered` for the same session if the model called the tool on both turns. The overreach request should produce no registration log unless the model chooses a valid single-session tool; Lambda still scopes that write to the JWT principal.
 
 ## Backend rules
 
